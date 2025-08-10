@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Invoice Generator</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Login Section -->
+        <div id="loginSection" class="section">
+            <div class="login-container">
+                <h1>Digital Invoice Generator</h1>
+                <p>Create and send professional invoices instantly</p>
+                <div id="g_id_onload"
+                     data-client_id="558805332524-spou8m9s6i9fl5kusp430fmg3kttclo9.apps.googleusercontent.com"
+                     data-callback="onSignIn">
+                </div>
+                <div class="g_id_signin" data-type="standard"></div>
+            </div>
+        </div>
+
+        <!-- Dashboard Section -->
+        <div id="dashboardSection" class="section hidden">
+            <header>
+                <h1>Invoice Generator</h1>
+                <div class="user-info">
+                    <span id="userEmail"></span>
+                    <button onclick="signOut()">Sign Out</button>
+                </div>
+            </header>
+
+            <nav class="tabs">
+                <button class="tab active" onclick="showTab('create')">Create Invoice</button>
+                <button class="tab" onclick="showTab('template')">Edit Template</button>
+                <button class="tab" onclick="showTab('history')">History</button>
+            </nav>
+
+            <!-- Create Invoice Tab -->
+            <div id="createTab" class="tab-content">
+                <form id="invoiceForm">
+                    <div class="form-grid">
+                        <div class="form-section">
+                            <h3>Client Information</h3>
+                            <input type="text" id="clientCompany" placeholder="Company Name" required>
+                            <textarea id="clientAddress" placeholder="Client Address" required></textarea>
+                            <input type="text" id="clientVAT" placeholder="VAT Number">
+                            <input type="email" id="clientEmail" placeholder="Client Email" required>
+                            <input type="tel" id="clientPhone" placeholder="Phone Number">
+                        </div>
+
+                        <div class="form-section">
+                            <h3>Invoice Details</h3>
+                            <input type="text" id="invoiceNumber" placeholder="Invoice Number" required>
+                            <input type="date" id="invoiceDate" required>
+                            <input type="text" id="yourRef" placeholder="Your Reference">
+                            <input type="text" id="cxRef" placeholder="CX Reference">
+                            <input type="text" id="customerRef" placeholder="Customer Reference">
+                        </div>
+
+                        <div class="form-section">
+                            <h3>Delivery Details</h3>
+                            <input type="date" id="deliveryDate" placeholder="Delivery Date" required>
+                            <select id="vehicleType" required>
+                                <option value="">Select Vehicle Type</option>
+                                <option value="LWB up to 4m">LWB up to 4m</option>
+                                <option value="SWB">SWB</option>
+                                <option value="Transit Van">Transit Van</option>
+                                <option value="7.5 Tonne">7.5 Tonne</option>
+                            </select>
+                            <textarea id="pickupAddress" placeholder="Pickup Address" required></textarea>
+                            <textarea id="deliveryAddress" placeholder="Delivery Address" required></textarea>
+                            <input type="time" id="deliveryTime" placeholder="Delivery Time">
+                            <input type="text" id="receivedBy" placeholder="Received By">
+                            <input type="text" id="leftAt" placeholder="Left At">
+                            <textarea id="deliveryNotes" placeholder="Delivery Notes"></textarea>
+                        </div>
+
+                        <div class="form-section">
+                            <h3>Pricing</h3>
+                            <input type="number" id="unitCost" placeholder="Unit Cost (£)" step="0.01" required>
+                            <input type="number" id="paymentDays" placeholder="Payment Terms (Days)" value="30">
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" onclick="previewInvoice()">Preview</button>
+                        <button type="button" onclick="generatePDF()">Generate PDF</button>
+                        <button type="button" onclick="sendEmail()">Send Email</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Template Tab -->
+            <div id="templateTab" class="tab-content hidden">
+                <h3>Edit Your Template</h3>
+                <form id="templateForm">
+                    <div class="form-grid">
+                        <div class="form-section">
+                            <h4>Your Business Information</h4>
+                            <input type="text" id="businessName" placeholder="Business Name">
+                            <textarea id="businessAddress" placeholder="Business Address"></textarea>
+                            <input type="tel" id="businessPhone" placeholder="Phone">
+                            <input type="email" id="businessEmail" placeholder="Email">
+                            <input type="text" id="memberID" placeholder="Member ID">
+                        </div>
+
+                        <div class="form-section">
+                            <h4>Bank Details</h4>
+                            <input type="text" id="bankName" placeholder="Bank Name">
+                            <input type="text" id="accountHolder" placeholder="Account Holder Name">
+                            <input type="text" id="sortCode" placeholder="Sort Code">
+                            <input type="text" id="accountNumber" placeholder="Account Number">
+                        </div>
+                    </div>
+                    <button type="button" onclick="saveTemplate()">Save Template</button>
+                </form>
+            </div>
+
+            <!-- History Tab -->
+            <div id="historyTab" class="tab-content hidden">
+                <h3>Invoice History</h3>
+                <div id="invoiceHistory"></div>
+            </div>
+        </div>
+
+        <!-- Preview Modal -->
+        <div id="previewModal" class="modal hidden">
+            <div class="modal-content">
+                <span class="close" onclick="closeModal()">&times;</span>
+                <div id="invoicePreview"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
