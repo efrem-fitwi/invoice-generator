@@ -12,7 +12,35 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window.location.hash === '#demo') {
         enableDemoMode();
     }
+    
+    // Initialize Google Sign-In when available
+    initializeGoogleSignIn();
 });
+
+// Initialize Google Sign-In
+function initializeGoogleSignIn() {
+    // Wait for Google Identity Services to load
+    const checkGoogle = () => {
+        if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+            try {
+                google.accounts.id.initialize({
+                    client_id: '558805332524-spou8m9s6i9fl5kusp430fmg3kttclo9.apps.googleusercontent.com',
+                    callback: onSignIn,
+                    auto_select: false,
+                    cancel_on_tap_outside: true
+                });
+                console.log('Google Sign-In initialized successfully');
+            } catch (error) {
+                console.warn('Google Sign-In initialization failed:', error);
+            }
+        } else {
+            // Retry after a short delay
+            setTimeout(checkGoogle, 500);
+        }
+    };
+    
+    checkGoogle();
+}
 
 // Demo mode for testing without Google authentication
 function enableDemoMode() {
@@ -37,30 +65,315 @@ function enableDemoMode() {
     console.log('Demo mode enabled - you can test all features without Google authentication');
 }
 
-// Google Sign-In with new Identity Services
-function onSignIn(response) {
-    // Decode the JWT token
-    const userInfo = parseJwt(response.credential);
+// Authentication System
+let users = JSON.parse(localStorage.getItem('invoiceApp_users') || '{}');
+
+// Show Sign Up form
+function showSignUp() {
+    document.getElementById('loginForm').classList.add('hidden');
+    document.getElementById('signupForm').classList.remove('hidden');
+}
+
+// Show Sign In form
+function showSignIn() {
+    document.getElementById('signupForm').classList.add('hidden');
+    document.getElementById('loginForm').classList.remove('hidden');
+}
+
+// Handle Email Login
+function handleEmailLogin(event) {
+    event.preventDefault();
     
-    currentUser = {
-        id: userInfo.sub,
-        name: userInfo.name,
-        email: userInfo.email,
-        imageUrl: userInfo.picture
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+    
+    // Check if user exists
+    if (users[email] && users[email].password === password) {
+        // Login successful
+        currentUser = {
+            id: email,
+            name: users[email].firstName + ' ' + users[email].lastName,
+            email: email,
+            firstName: users[email].firstName,
+            lastName: users[email].lastName
+        };
+        
+        loginSuccess();
+        showNotification(`Welcome back, ${currentUser.name}!`);
+    } else {
+        showNotification('Invalid email or password', 'error');
+    }
+}
+
+// Handle Email Signup
+function handleEmailSignup(event) {
+    event.preventDefault();
+    
+    const firstName = document.getElementById('signupFirstName').value;
+    const lastName = document.getElementById('signupLastName').value;
+    const email = document.getElementById('signupEmail').value;
+    const password = document.getElementById('signupPassword').value;
+    const confirmPassword = document.getElementById('signupConfirmPassword').value;
+    
+    // Validation
+    if (password !== confirmPassword) {
+        showNotification('Passwords do not match', 'error');
+        return;
+    }
+    
+    if (password.length < 6) {
+        showNotification('Password must be at least 6 characters long', 'error');
+        return;
+    }
+    
+    if (users[email]) {
+        showNotification('An account with this email already exists', 'error');
+        return;
+    }
+    
+    // Create new user
+    users[email] = {
+        firstName: firstName,
+        lastName: lastName,
+        email: email,
+        password: password,
+        createdAt: new Date().toISOString()
     };
     
-    document.getElementById('userEmail').textContent = currentUser.email;
+    // Save to localStorage
+    localStorage.setItem('invoiceApp_users', JSON.stringify(users));
+    
+    // Auto login
+    currentUser = {
+        id: email,
+        name: firstName + ' ' + lastName,
+        email: email,
+        firstName: firstName,
+        lastName: lastName
+    };
+    
+    loginSuccess();
+    showNotification(`Welcome ${firstName}! Your account has been created successfully.`);
+}
+
+// Handle Google Sign-In
+function handleGoogleSignIn() {
+    console.log('Google Sign-In button clicked');
+    
+    // Check if Google Identity Services is loaded
+    if (typeof google === 'undefined') {
+        showNotification('⏳ Google Sign-In is loading... Please wait and try again.', 'error');
+        return;
+    }
+
+    if (!google.accounts || !google.accounts.id) {
+        showNotification('❌ Google Sign-In service unavailable. Please use Email signup or Demo mode.', 'error');
+        return;
+    }
+
+    try {
+        console.log('Attempting Google Sign-In...');
+        
+        // Create a temporary button and render Google's official button
+        const tempDiv = document.createElement('div');
+        tempDiv.style.position = 'fixed';
+        tempDiv.style.top = '50%';
+        tempDiv.style.left = '50%';
+        tempDiv.style.transform = 'translate(-50%, -50%)';
+        tempDiv.style.zIndex = '10000';
+        tempDiv.style.background = 'white';
+        tempDiv.style.padding = '20px';
+        tempDiv.style.borderRadius = '8px';
+        tempDiv.style.boxShadow = '0 4px 20px rgba(0,0,0,0.3)';
+        tempDiv.style.display = 'none';
+        tempDiv.innerHTML = `
+            <p style="margin-bottom: 15px; text-align: center;">Sign in with Google</p>
+            <div id="google-signin-button"></div>
+            <button onclick="this.parentElement.remove()" style="margin-top: 10px; background: #f1f3f4; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Cancel</button>
+        `;
+        document.body.appendChild(tempDiv);
+        
+        // Render the official Google Sign-In button
+        google.accounts.id.renderButton(
+            tempDiv.querySelector('#google-signin-button'),
+            {
+                theme: 'outline',
+                size: 'large',
+                type: 'standard',
+                shape: 'rectangular',
+                text: 'signin_with',
+                logo_alignment: 'left'
+            }
+        );
+        
+        // Show the popup
+        tempDiv.style.display = 'block';
+        
+        // Add backdrop
+        const backdrop = document.createElement('div');
+        backdrop.style.position = 'fixed';
+        backdrop.style.top = '0';
+        backdrop.style.left = '0';
+        backdrop.style.width = '100%';
+        backdrop.style.height = '100%';
+        backdrop.style.background = 'rgba(0,0,0,0.5)';
+        backdrop.style.zIndex = '9999';
+        backdrop.onclick = () => {
+            document.body.removeChild(backdrop);
+            document.body.removeChild(tempDiv);
+        };
+        document.body.appendChild(backdrop);
+        
+        console.log('Google Sign-In button rendered');
+
+    } catch (error) {
+        console.error('Google Sign-In Error:', error);
+        
+        let message = '❌ Google Sign-In failed. ';
+        
+        // Check specific error types
+        if (error.message && error.message.includes('origin_mismatch')) {
+            message += 'Domain not authorized.';
+        } else if (error.message && error.message.includes('popup_blocked')) {
+            message += 'Popup blocked by browser.';
+        } else {
+            message += 'Service unavailable.';
+        }
+        
+        message += ' Please use Email signup or Demo mode.';
+        showNotification(message, 'error');
+    }
+}
+
+// Google Sign-In callback (existing)
+function onSignIn(response) {
+    console.log('Google Sign-In callback triggered', response);
+    
+    try {
+        // Close any modal popups
+        const tempDivs = document.querySelectorAll('div[style*="position: fixed"]');
+        tempDivs.forEach(div => {
+            if (div.innerHTML.includes('Sign in with Google')) {
+                div.remove();
+            }
+        });
+        const backdrops = document.querySelectorAll('div[style*="rgba(0,0,0,0.5)"]');
+        backdrops.forEach(backdrop => backdrop.remove());
+        
+        if (!response || !response.credential) {
+            throw new Error('No credential received from Google');
+        }
+        
+        const userInfo = parseJwt(response.credential);
+        console.log('Parsed user info:', userInfo);
+        
+        if (!userInfo || !userInfo.email) {
+            throw new Error('Invalid user information from Google');
+        }
+        
+        currentUser = {
+            id: userInfo.sub,
+            name: userInfo.name || userInfo.email,
+            email: userInfo.email,
+            imageUrl: userInfo.picture || ''
+        };
+        
+        console.log('Setting current user:', currentUser);
+        
+        loginSuccess();
+        showNotification(`🎉 Welcome ${currentUser.name}! Signed in with Google successfully.`);
+        
+    } catch (error) {
+        console.error('Google Sign-In callback error:', error);
+        showNotification('❌ Google Sign-In failed: ' + error.message, 'error');
+    }
+}
+
+// Login Success - Common function
+function loginSuccess() {
     document.getElementById('loginSection').classList.add('hidden');
     document.getElementById('dashboardSection').classList.remove('hidden');
+    document.getElementById('userEmail').textContent = currentUser.email;
+    
+    // Load user template with name
+    if (currentUser.firstName && currentUser.lastName) {
+        userTemplate.businessName = userTemplate.businessName || `${currentUser.firstName} ${currentUser.lastName}`;
+        userTemplate.businessEmail = userTemplate.businessEmail || currentUser.email;
+    }
     
     loadUserData();
 }
 
+// Sign Out
 function signOut() {
-    google.accounts.id.disableAutoSelect();
+    if (typeof google !== 'undefined' && google.accounts) {
+        google.accounts.id.disableAutoSelect();
+    }
+    
     currentUser = null;
     document.getElementById('loginSection').classList.remove('hidden');
     document.getElementById('dashboardSection').classList.add('hidden');
+    
+    // Clear form fields
+    document.querySelectorAll('input').forEach(input => {
+        if (input.type !== 'checkbox') input.value = '';
+    });
+    
+    showNotification('You have been signed out');
+}
+
+// Show Forgot Password (placeholder)
+function showForgotPassword() {
+    const email = prompt('Enter your email address to reset your password:');
+    if (email) {
+        showNotification('Password reset instructions would be sent to ' + email + ' (Demo: Feature not implemented)');
+    }
+}
+
+// Debug Google Auth
+function debugGoogleAuth() {
+    let debugInfo = '🔍 Google Auth Debug Info:\n\n';
+    
+    // Check if Google object exists
+    debugInfo += `Google object: ${typeof google !== 'undefined' ? '✅ Loaded' : '❌ Not loaded'}\n`;
+    
+    if (typeof google !== 'undefined') {
+        debugInfo += `Google.accounts: ${google.accounts ? '✅ Available' : '❌ Missing'}\n`;
+        
+        if (google.accounts && google.accounts.id) {
+            debugInfo += `Google.accounts.id: ✅ Available\n`;
+        } else {
+            debugInfo += `Google.accounts.id: ❌ Missing\n`;
+        }
+    }
+    
+    // Check current URL
+    debugInfo += `Current URL: ${window.location.href}\n`;
+    debugInfo += `Protocol: ${window.location.protocol}\n`;
+    debugInfo += `Host: ${window.location.host}\n`;
+    
+    // Check if in iframe
+    debugInfo += `In iframe: ${window !== window.top ? '⚠️ Yes (may block Google Auth)' : '✅ No'}\n`;
+    
+    // Check cookies enabled
+    debugInfo += `Cookies enabled: ${navigator.cookieEnabled ? '✅ Yes' : '❌ No'}\n`;
+    
+    console.log(debugInfo);
+    alert(debugInfo);
+    
+    // Try to initialize Google Auth
+    if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+        try {
+            google.accounts.id.initialize({
+                client_id: '558805332524-spou8m9s6i9fl5kusp430fmg3kttclo9.apps.googleusercontent.com',
+                callback: onSignIn
+            });
+            showNotification('✅ Google Auth initialized successfully!', 'success');
+        } catch (error) {
+            showNotification('❌ Google Auth initialization failed: ' + error.message, 'error');
+            console.error('Google Auth init error:', error);
+        }
+    }
 }
 
 // Helper function to decode JWT token
