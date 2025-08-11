@@ -586,6 +586,14 @@ header {
     background: #e74c3c;
 }
 
+.notification.info {
+    background: #3498db;
+}
+
+.notification.success {
+    background: #27ae60;
+}
+
 .notification button {
     background: none;
     border: none;

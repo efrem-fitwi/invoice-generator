@@ -5,41 +5,67 @@ let invoiceHistory = [];
 
 // Initialize the app
 document.addEventListener('DOMContentLoaded', function() {
-    loadUserData();
     setTodaysDate();
     
     // Check if we should run in demo mode (for testing without Google auth)
     if (window.location.hash === '#demo') {
         enableDemoMode();
+        return;
     }
     
     // Initialize Google Sign-In when available
     initializeGoogleSignIn();
-});
-
-// Initialize Google Sign-In
-function initializeGoogleSignIn() {
-    // Wait for Google Identity Services to load
-    const checkGoogle = () => {
-        if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
-            try {
-                google.accounts.id.initialize({
-                    client_id: '558805332524-spou8m9s6i9fl5kusp430fmg3kttclo9.apps.googleusercontent.com',
-                    callback: onSignIn,
-                    auto_select: false,
-                    cancel_on_tap_outside: true
-                });
-                console.log('Google Sign-In initialized successfully');
-            } catch (error) {
-                console.warn('Google Sign-In initialization failed:', error);
-            }
+    
+    // Wait for Firebase to be ready
+    const checkFirebase = () => {
+        if (window.firebaseAuth) {
+            console.log('Firebase Auth ready');
+            // Firebase auth state listener will handle initial login state
         } else {
-            // Retry after a short delay
-            setTimeout(checkGoogle, 500);
+            setTimeout(checkFirebase, 100);
         }
     };
+    checkFirebase();
+});
+
+// Handle Firebase Authentication State Changes
+window.handleFirebaseAuthChange = async (user) => {
+    if (user) {
+        console.log('Firebase user logged in:', user);
+        
+        // Set current user
+        currentUser = {
+            id: user.uid,
+            name: user.displayName || user.email,
+            email: user.email,
+            firstName: user.displayName ? user.displayName.split(' ')[0] : '',
+            lastName: user.displayName ? user.displayName.split(' ').slice(1).join(' ') : ''
+        };
+        
+        // Load user data from Firebase
+        await loadUserDataFromFirebase();
+        
+        // Show dashboard
+        loginSuccess();
+        
+    } else {
+        console.log('Firebase user logged out');
+        currentUser = null;
+        userTemplate = {};
+        invoiceHistory = [];
+        
+        // Show login screen
+        document.getElementById('loginSection').classList.remove('hidden');
+        document.getElementById('dashboardSection').classList.add('hidden');
+    }
+};
+
+// Initialize Google Sign-In (Firebase only - legacy removed)
+function initializeGoogleSignIn() {
+    console.log('Using Firebase Google Auth - Legacy Google Identity Services disabled');
     
-    checkGoogle();
+    // Remove legacy Google Sign-In initialization to prevent conflicts
+    // All Google authentication now handled through Firebase Auth
 }
 
 // Demo mode for testing without Google authentication
@@ -65,9 +91,6 @@ function enableDemoMode() {
     console.log('Demo mode enabled - you can test all features without Google authentication');
 }
 
-// Authentication System
-let users = JSON.parse(localStorage.getItem('invoiceApp_users') || '{}');
-
 // Show Sign Up form
 function showSignUp() {
     document.getElementById('loginForm').classList.add('hidden');
@@ -80,33 +103,42 @@ function showSignIn() {
     document.getElementById('loginForm').classList.remove('hidden');
 }
 
-// Handle Email Login
-function handleEmailLogin(event) {
+// Handle Email Login with Firebase
+async function handleEmailLogin(event) {
     event.preventDefault();
     
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
     
-    // Check if user exists
-    if (users[email] && users[email].password === password) {
-        // Login successful
-        currentUser = {
-            id: email,
-            name: users[email].firstName + ' ' + users[email].lastName,
-            email: email,
-            firstName: users[email].firstName,
-            lastName: users[email].lastName
-        };
-        
-        loginSuccess();
-        showNotification(`Welcome back, ${currentUser.name}!`);
+    if (!window.firebaseSignIn) {
+        showNotification('⏳ Firebase is loading... Please try again in a moment.', 'error');
+        return;
+    }
+    
+    showNotification('🔄 Signing in...', 'info');
+    
+    const result = await window.firebaseSignIn(email, password);
+    
+    if (result.success) {
+        // Success handled by Firebase auth state listener
+        console.log('Login successful');
     } else {
-        showNotification('Invalid email or password', 'error');
+        let errorMessage = 'Login failed';
+        if (result.error.includes('user-not-found')) {
+            errorMessage = 'No account found with this email';
+        } else if (result.error.includes('wrong-password')) {
+            errorMessage = 'Incorrect password';
+        } else if (result.error.includes('invalid-email')) {
+            errorMessage = 'Invalid email address';
+        } else if (result.error.includes('too-many-requests')) {
+            errorMessage = 'Too many failed attempts. Please try again later';
+        }
+        showNotification('❌ ' + errorMessage, 'error');
     }
 }
 
-// Handle Email Signup
-function handleEmailSignup(event) {
+// Handle Email Signup with Firebase
+async function handleEmailSignup(event) {
     event.preventDefault();
     
     const firstName = document.getElementById('signupFirstName').value;
@@ -117,176 +149,105 @@ function handleEmailSignup(event) {
     
     // Validation
     if (password !== confirmPassword) {
-        showNotification('Passwords do not match', 'error');
+        showNotification('❌ Passwords do not match', 'error');
         return;
     }
     
     if (password.length < 6) {
-        showNotification('Password must be at least 6 characters long', 'error');
+        showNotification('❌ Password must be at least 6 characters long', 'error');
         return;
     }
     
-    if (users[email]) {
-        showNotification('An account with this email already exists', 'error');
+    if (!window.firebaseSignUp) {
+        showNotification('⏳ Firebase is loading... Please try again in a moment.', 'error');
         return;
     }
     
-    // Create new user
-    users[email] = {
-        firstName: firstName,
-        lastName: lastName,
-        email: email,
-        password: password,
-        createdAt: new Date().toISOString()
-    };
+    showNotification('🔄 Creating account...', 'info');
     
-    // Save to localStorage
-    localStorage.setItem('invoiceApp_users', JSON.stringify(users));
+    const result = await window.firebaseSignUp(email, password, firstName, lastName);
     
-    // Auto login
-    currentUser = {
-        id: email,
-        name: firstName + ' ' + lastName,
-        email: email,
-        firstName: firstName,
-        lastName: lastName
-    };
-    
-    loginSuccess();
-    showNotification(`Welcome ${firstName}! Your account has been created successfully.`);
+    if (result.success) {
+        // Success handled by Firebase auth state listener
+        if (result.message) {
+            // Show recovery/existing account message
+            showNotification('✅ ' + result.message, 'success');
+        } else {
+            console.log('Account created successfully');
+            showNotification('✅ Account created successfully!', 'success');
+        }
+    } else {
+        let errorMessage = 'Account creation failed';
+        
+        if (result.code === 'account-recovery-failed') {
+            errorMessage = result.error;
+        } else if (result.error.includes('email-already-in-use')) {
+            errorMessage = 'An account with this email already exists. Please try signing in instead.';
+        } else if (result.error.includes('weak-password')) {
+            errorMessage = 'Password is too weak. Please choose a stronger password.';
+        } else if (result.error.includes('invalid-email')) {
+            errorMessage = 'Invalid email address format';
+        } else if (result.error.includes('network-request-failed')) {
+            errorMessage = 'Network error. Please check your internet connection.';
+        }
+        
+        showNotification('❌ ' + errorMessage, 'error');
+    }
 }
 
-// Handle Google Sign-In
-function handleGoogleSignIn() {
+// Handle Google Sign-In with Firebase
+async function handleGoogleSignIn() {
     console.log('Google Sign-In button clicked');
     
-    // Check if Google Identity Services is loaded
-    if (typeof google === 'undefined') {
-        showNotification('⏳ Google Sign-In is loading... Please wait and try again.', 'error');
+    if (!window.firebaseGoogleSignIn) {
+        showNotification('⏳ Firebase is loading... Please try again in a moment.', 'error');
         return;
     }
-
-    if (!google.accounts || !google.accounts.id) {
-        showNotification('❌ Google Sign-In service unavailable. Please use Email signup or Demo mode.', 'error');
-        return;
-    }
-
+    
     try {
-        console.log('Attempting Google Sign-In...');
+        showNotification('🔄 Signing in with Google...', 'info');
         
-        // Create a temporary button and render Google's official button
-        const tempDiv = document.createElement('div');
-        tempDiv.style.position = 'fixed';
-        tempDiv.style.top = '50%';
-        tempDiv.style.left = '50%';
-        tempDiv.style.transform = 'translate(-50%, -50%)';
-        tempDiv.style.zIndex = '10000';
-        tempDiv.style.background = 'white';
-        tempDiv.style.padding = '20px';
-        tempDiv.style.borderRadius = '8px';
-        tempDiv.style.boxShadow = '0 4px 20px rgba(0,0,0,0.3)';
-        tempDiv.style.display = 'none';
-        tempDiv.innerHTML = `
-            <p style="margin-bottom: 15px; text-align: center;">Sign in with Google</p>
-            <div id="google-signin-button"></div>
-            <button onclick="this.parentElement.remove()" style="margin-top: 10px; background: #f1f3f4; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Cancel</button>
-        `;
-        document.body.appendChild(tempDiv);
+        const result = await window.firebaseGoogleSignIn();
         
-        // Render the official Google Sign-In button
-        google.accounts.id.renderButton(
-            tempDiv.querySelector('#google-signin-button'),
-            {
-                theme: 'outline',
-                size: 'large',
-                type: 'standard',
-                shape: 'rectangular',
-                text: 'signin_with',
-                logo_alignment: 'left'
+        if (result.success) {
+            if (result.redirected) {
+                showNotification('🔄 Redirecting to Google... Please wait.', 'info');
+                // User will be redirected, auth state will be handled on return
+            } else {
+                // Success handled by Firebase auth state listener
+                console.log('Google Sign-In successful');
+                showNotification('✅ Successfully signed in with Google!', 'success');
             }
-        );
-        
-        // Show the popup
-        tempDiv.style.display = 'block';
-        
-        // Add backdrop
-        const backdrop = document.createElement('div');
-        backdrop.style.position = 'fixed';
-        backdrop.style.top = '0';
-        backdrop.style.left = '0';
-        backdrop.style.width = '100%';
-        backdrop.style.height = '100%';
-        backdrop.style.background = 'rgba(0,0,0,0.5)';
-        backdrop.style.zIndex = '9999';
-        backdrop.onclick = () => {
-            document.body.removeChild(backdrop);
-            document.body.removeChild(tempDiv);
-        };
-        document.body.appendChild(backdrop);
-        
-        console.log('Google Sign-In button rendered');
-
-    } catch (error) {
-        console.error('Google Sign-In Error:', error);
-        
-        let message = '❌ Google Sign-In failed. ';
-        
-        // Check specific error types
-        if (error.message && error.message.includes('origin_mismatch')) {
-            message += 'Domain not authorized.';
-        } else if (error.message && error.message.includes('popup_blocked')) {
-            message += 'Popup blocked by browser.';
         } else {
-            message += 'Service unavailable.';
+            let errorMessage = 'Google Sign-In failed';
+            
+            if (result.error.includes('popup-blocked') || result.error.includes('auth/popup-blocked')) {
+                errorMessage = 'Google popup was blocked. Please allow popups and try again.';
+            } else if (result.error.includes('popup-closed-by-user') || result.error.includes('auth/popup-closed-by-user')) {
+                errorMessage = 'Google Sign-In was cancelled.';
+            } else if (result.error.includes('network-request-failed')) {
+                errorMessage = 'Network error. Please check your internet connection.';
+            } else if (result.error.includes('auth/unauthorized-domain')) {
+                errorMessage = 'Domain not authorized for Google Sign-In.';
+            } else if (result.error.includes('auth/cancelled-popup-request')) {
+                errorMessage = 'Another sign-in popup is already open. Please close it and try again.';
+            }
+            
+            console.error('Google Sign-In Error Details:', result.error);
+            showNotification('❌ ' + errorMessage + ' You can use email signup instead.', 'error');
         }
         
-        message += ' Please use Email signup or Demo mode.';
-        showNotification(message, 'error');
+    } catch (error) {
+        console.error('Google Sign-In Error:', error);
+        showNotification('❌ Google Sign-In failed. Please try email signup or demo mode.', 'error');
     }
 }
 
-// Google Sign-In callback (existing)
+// Legacy Google Sign-In callback (disabled - Firebase handles auth)
 function onSignIn(response) {
-    console.log('Google Sign-In callback triggered', response);
-    
-    try {
-        // Close any modal popups
-        const tempDivs = document.querySelectorAll('div[style*="position: fixed"]');
-        tempDivs.forEach(div => {
-            if (div.innerHTML.includes('Sign in with Google')) {
-                div.remove();
-            }
-        });
-        const backdrops = document.querySelectorAll('div[style*="rgba(0,0,0,0.5)"]');
-        backdrops.forEach(backdrop => backdrop.remove());
-        
-        if (!response || !response.credential) {
-            throw new Error('No credential received from Google');
-        }
-        
-        const userInfo = parseJwt(response.credential);
-        console.log('Parsed user info:', userInfo);
-        
-        if (!userInfo || !userInfo.email) {
-            throw new Error('Invalid user information from Google');
-        }
-        
-        currentUser = {
-            id: userInfo.sub,
-            name: userInfo.name || userInfo.email,
-            email: userInfo.email,
-            imageUrl: userInfo.picture || ''
-        };
-        
-        console.log('Setting current user:', currentUser);
-        
-        loginSuccess();
-        showNotification(`🎉 Welcome ${currentUser.name}! Signed in with Google successfully.`);
-        
-    } catch (error) {
-        console.error('Google Sign-In callback error:', error);
-        showNotification('❌ Google Sign-In failed: ' + error.message, 'error');
-    }
+    console.log('Legacy Google Sign-In callback triggered - ignoring in favor of Firebase Auth');
+    // This function is now disabled to prevent conflicts with Firebase Auth
+    showNotification('ℹ️ Please use the "Sign in with Google" button below for authentication.', 'info');
 }
 
 // Login Success - Common function
@@ -304,22 +265,71 @@ function loginSuccess() {
     loadUserData();
 }
 
-// Sign Out
-function signOut() {
-    if (typeof google !== 'undefined' && google.accounts) {
-        google.accounts.id.disableAutoSelect();
+// Sign Out with Firebase
+async function signOut() {
+    if (window.firebaseSignOut) {
+        showNotification('🔄 Signing out...', 'info');
+        const result = await window.firebaseSignOut();
+        
+        if (result.success) {
+            // Clear Google Sign-In
+            if (typeof google !== 'undefined' && google.accounts) {
+                google.accounts.id.disableAutoSelect();
+            }
+            
+            // Clear only invoice form fields, NOT template fields
+            clearInvoiceForm();
+            
+            // Clear local user data
+            currentUser = null;
+            userTemplate = {};
+            invoiceHistory = [];
+            
+            showNotification('👋 You have been signed out');
+        } else {
+            showNotification('❌ Sign out failed: ' + result.error, 'error');
+        }
+    } else {
+        // Fallback for demo mode
+        currentUser = null;
+        userTemplate = {};
+        invoiceHistory = [];
+        clearInvoiceForm();
+        document.getElementById('loginSection').classList.remove('hidden');
+        document.getElementById('dashboardSection').classList.add('hidden');
+        showNotification('👋 You have been signed out');
     }
+}
+
+// Clear only invoice form fields (not template fields)
+function clearInvoiceForm() {
+    const invoiceFields = [
+        'clientCompany', 'clientAddress', 'clientVAT', 'clientEmail', 'clientPhone',
+        'invoiceNumber', 'invoiceDate', 'yourRef', 'cxRef', 'customerRef',
+        'deliveryDate', 'vehicleType', 'pickupAddress', 'deliveryAddress',
+        'deliveryTime', 'receivedBy', 'leftAt', 'deliveryNotes', 'unitCost', 'paymentDays'
+    ];
     
-    currentUser = null;
-    document.getElementById('loginSection').classList.remove('hidden');
-    document.getElementById('dashboardSection').classList.add('hidden');
-    
-    // Clear form fields
-    document.querySelectorAll('input').forEach(input => {
-        if (input.type !== 'checkbox') input.value = '';
+    invoiceFields.forEach(fieldId => {
+        const element = document.getElementById(fieldId);
+        if (element) {
+            if (element.type === 'checkbox') {
+                element.checked = false;
+            } else {
+                element.value = '';
+            }
+        }
     });
     
-    showNotification('You have been signed out');
+    // Reset dates to today
+    setTodaysDate();
+    
+    // Clear textareas
+    document.querySelectorAll('#createTab textarea').forEach(textarea => {
+        textarea.value = '';
+    });
+    
+    console.log('Invoice form cleared');
 }
 
 // Show Forgot Password (placeholder)
@@ -327,6 +337,91 @@ function showForgotPassword() {
     const email = prompt('Enter your email address to reset your password:');
     if (email) {
         showNotification('Password reset instructions would be sent to ' + email + ' (Demo: Feature not implemented)');
+    }
+}
+
+// Debug user email status
+function debugUserEmail() {
+    const email = prompt('Enter the email address you want to check:');
+    if (email && window.debugUserStatus) {
+        showNotification('🔍 Checking email status... Check console for details.', 'info');
+        window.debugUserStatus(email).then(result => {
+            console.log('🔍 Email status result:', result);
+            
+            let message = `Email: ${email}\n`;
+            if (result.authExists) {
+                message += `✅ EXISTS in Firebase Auth\n`;
+                message += `🔧 Sign-in methods: ${result.methods.join(', ')}\n`;
+                if (result.firestoreExists === true) {
+                    message += `✅ EXISTS in Firestore`;
+                } else if (result.firestoreExists === false) {
+                    message += `❌ MISSING from Firestore (This causes the error!)`;
+                } else {
+                    message += `❓ Firestore status unknown`;
+                }
+            } else {
+                message += `❌ Does NOT exist in Firebase Auth\n✅ Safe to sign up!`;
+            }
+            
+            alert(message);
+            showNotification(result.authExists ? 
+                '⚠️ User exists in Auth - check console for details' : 
+                '✅ Email is available for signup', 
+                result.authExists ? 'info' : 'success'
+            );
+        }).catch(error => {
+            console.error('Debug error:', error);
+            showNotification('❌ Debug failed: ' + error.message, 'error');
+        });
+    } else {
+        showNotification('⚠️ Email check requires Firebase to be loaded', 'error');
+    }
+}
+
+// Debug Firebase Functions
+async function debugFirebaseFunctions() {
+    console.log('=== FIREBASE DEBUG TEST ===');
+    
+    let debugInfo = '🔧 Firebase Functions Debug:\n\n';
+    
+    // Check if user is signed in
+    debugInfo += `Current User: ${currentUser ? '✅ Signed in as ' + currentUser.email : '❌ Not signed in'}\n`;
+    
+    // Check Firebase functions
+    const functions = ['saveUserTemplate', 'getUserData', 'getUserInvoices', 'saveInvoice'];
+    functions.forEach(func => {
+        debugInfo += `${func}: ${typeof window[func] === 'function' ? '✅ Available' : '❌ Missing'}\n`;
+    });
+    
+    // Check Firebase auth
+    debugInfo += `Firebase Auth: ${window.firebaseAuth ? '✅ Available' : '❌ Missing'}\n`;
+    debugInfo += `Firebase DB: ${window.firebaseDB ? '✅ Available' : '❌ Missing'}\n`;
+    
+    console.log(debugInfo);
+    alert(debugInfo);
+    
+    if (currentUser) {
+        // Test loading user data
+        showNotification('🔄 Testing user data loading...', 'info');
+        
+        try {
+            if (window.getUserData) {
+                const result = await window.getUserData(currentUser.id);
+                console.log('getUserData result:', result);
+                showNotification(`getUserData: ${result.success ? '✅ Success' : '❌ Failed - ' + result.error}`, result.success ? 'success' : 'error');
+            }
+            
+            if (window.getUserInvoices) {
+                const invoiceResult = await window.getUserInvoices(currentUser.id);
+                console.log('getUserInvoices result:', invoiceResult);
+                showNotification(`getUserInvoices: ${invoiceResult.success ? '✅ Success - Found ' + (invoiceResult.invoices ? invoiceResult.invoices.length : 0) + ' invoices' : '❌ Failed - ' + invoiceResult.error}`, invoiceResult.success ? 'success' : 'error');
+            }
+        } catch (error) {
+            console.error('Error testing functions:', error);
+            showNotification('❌ Error testing functions: ' + error.message, 'error');
+        }
+    } else {
+        showNotification('ℹ️ Sign in first to test user-specific functions', 'info');
     }
 }
 
@@ -403,32 +498,139 @@ function setTodaysDate() {
     document.getElementById('deliveryDate').value = today;
 }
 
-// Load user data from localStorage
-function loadUserData() {
-    if (!currentUser) return;
+// Load user data from Firebase
+async function loadUserDataFromFirebase() {
+    if (!currentUser) {
+        console.log('No current user, skipping data load');
+        return;
+    }
     
-    const userData = localStorage.getItem(`user_${currentUser.id}`);
-    if (userData) {
-        const data = JSON.parse(userData);
-        userTemplate = data.template || {};
-        invoiceHistory = data.history || [];
+    try {
+        // Ensure we have a valid user ID
+        const userId = currentUser.id || currentUser.uid;
+        if (!userId) {
+            console.error('❌ No valid user ID found for data loading!', currentUser);
+            showNotification('❌ Error: No valid user ID found', 'error');
+            return;
+        }
         
-        // Load template data
-        loadTemplateData();
-        loadInvoiceHistory();
+        console.log('Loading user data from Firebase for:', userId);
+        showNotification('🔄 Loading your data...', 'info');
+        
+        // Load user profile and template
+        if (window.getUserData) {
+            const userResult = await window.getUserData(userId);
+            if (userResult.success && userResult.data) {
+                userTemplate = userResult.data.businessInfo || {};
+                console.log('Loaded user template:', userTemplate);
+                
+                // Update template form immediately
+                loadTemplateData();
+            } else {
+                console.log('No user template found or error:', userResult.error);
+                userTemplate = {};
+            }
+        }
+        
+        // Load invoice history
+        if (window.getUserInvoices) {
+            const invoicesResult = await window.getUserInvoices(userId);
+            if (invoicesResult.success && invoicesResult.invoices) {
+                invoiceHistory = invoicesResult.invoices.map(invoice => ({
+                    id: invoice.id,
+                    invoiceNumber: invoice.invoiceNumber,
+                    clientCompany: invoice.clientCompany || invoice.clientInfo?.clientCompany,
+                    amount: invoice.amount || invoice.unitCost,
+                    date: invoice.createdAt ? new Date(invoice.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                    status: invoice.status || 'Generated',
+                    fullData: invoice
+                }));
+                console.log('Loaded invoice history:', invoiceHistory.length, 'invoices');
+                
+                // Update history display immediately
+                loadInvoiceHistory();
+            } else {
+                console.log('No invoices found or error:', invoicesResult.error);
+                invoiceHistory = [];
+                loadInvoiceHistory(); // Show empty state
+            }
+        }
+        
+        showNotification('✅ Data loaded successfully!', 'success');
+        
+    } catch (error) {
+        console.error('Error loading user data:', error);
+        showNotification('❌ Error loading your data: ' + error.message, 'error');
     }
 }
 
-// Save user data to localStorage
-function saveUserData() {
-    if (!currentUser) return;
+// Save user template to Firebase
+async function saveUserTemplateToFirebase() {
+    if (!currentUser) {
+        showNotification('❌ Please sign in to save your template', 'error');
+        return;
+    }
     
-    const userData = {
-        template: userTemplate,
-        history: invoiceHistory
-    };
+    if (!window.saveUserTemplate) {
+        showNotification('⏳ Firebase is still loading... Please try again in a moment.', 'error');
+        return;
+    }
     
-    localStorage.setItem(`user_${currentUser.id}`, JSON.stringify(userData));
+    const templateFields = [
+        'businessName', 'businessAddress', 'businessPhone', 'businessEmail', 
+        'memberID', 'bankName', 'accountHolder', 'sortCode', 'accountNumber'
+    ];
+    
+    // Collect template data from form
+    const templateData = {};
+    templateFields.forEach(field => {
+        const element = document.getElementById(field);
+        if (element) {
+            templateData[field] = element.value.trim();
+            userTemplate[field] = element.value.trim(); // Update local copy
+        }
+    });
+    
+    console.log('Saving template data:', templateData);
+    console.log('Current user ID before Firebase call:', currentUser.id);
+    console.log('Type of currentUser.id:', typeof currentUser.id);
+    
+    showNotification('🔄 Saving template...', 'info');
+    
+    // Ensure we have a valid user ID
+    const userId = currentUser.id || currentUser.uid;
+    if (!userId) {
+        console.error('❌ No valid user ID found!', currentUser);
+        showNotification('❌ Error: No valid user ID found', 'error');
+        return;
+    }
+    
+    console.log('Using user ID for save:', userId);
+    
+    try {
+        // Test the function and parameters first
+        console.log('About to call window.saveUserTemplate');
+        console.log('Function exists:', typeof window.saveUserTemplate);
+        console.log('userId parameter:', userId);
+        console.log('templateData parameter:', templateData);
+        
+        // Direct call
+        const saveFunc = window.saveUserTemplate;
+        console.log('Extracted function:', typeof saveFunc);
+        
+        const result = await saveFunc(userId, templateData);
+        
+        if (result.success) {
+            showNotification('✅ Template saved successfully!', 'success');
+            console.log('Template saved to Firebase successfully');
+        } else {
+            console.error('Failed to save template:', result.error);
+            showNotification('❌ Failed to save template: ' + result.error, 'error');
+        }
+    } catch (error) {
+        console.error('Error saving template:', error);
+        showNotification('❌ Error saving template: ' + error.message, 'error');
+    }
 }
 
 // Load template data into form
@@ -441,22 +643,27 @@ function loadTemplateData() {
     });
 }
 
-// Save template
-function saveTemplate() {
-    const templateFields = [
-        'businessName', 'businessAddress', 'businessPhone', 'businessEmail', 
-        'memberID', 'bankName', 'accountHolder', 'sortCode', 'accountNumber'
-    ];
-    
-    templateFields.forEach(field => {
-        const element = document.getElementById(field);
-        if (element) {
-            userTemplate[field] = element.value;
-        }
+// Save template (wrapper function for the button)
+async function saveTemplate() {
+    console.log('Save template button clicked');
+    console.log('Current user:', currentUser);
+    console.log('Firebase functions available:', {
+        saveUserTemplate: typeof window.saveUserTemplate,
+        getUserData: typeof window.getUserData,
+        firebaseAuth: typeof window.firebaseAuth
     });
     
-    saveUserData();
-    alert('Template saved successfully!');
+    if (!currentUser) {
+        showNotification('❌ You must be signed in to save your template', 'error');
+        return;
+    }
+    
+    try {
+        await saveUserTemplateToFirebase();
+    } catch (error) {
+        console.error('Error in saveTemplate wrapper:', error);
+        showNotification('❌ Error saving template: ' + error.message, 'error');
+    }
 }
 
 // Generate invoice number
@@ -685,37 +892,108 @@ ${userTemplate.businessName || 'Your Business'}`;
     alert('Email client opened. Please attach the PDF before sending.');
 }
 
-// Save to history
-function saveToHistory(formData) {
-    const historyItem = {
-        id: Date.now(),
-        invoiceNumber: formData.invoiceNumber,
-        clientCompany: formData.clientCompany,
-        amount: formData.unitCost,
-        date: formData.invoiceDate,
-        status: 'Generated',
-        // Store complete form data for regeneration
-        fullData: formData
-    };
-    
-    invoiceHistory.unshift(historyItem);
-    if (invoiceHistory.length > 50) {
-        invoiceHistory = invoiceHistory.slice(0, 50); // Keep only last 50 invoices
+// Save invoice to Firebase
+async function saveToHistory(formData) {
+    if (!currentUser || !window.saveInvoice) {
+        console.log('Cannot save to Firebase, using demo mode');
+        // Fallback for demo mode
+        const historyItem = {
+            id: Date.now(),
+            invoiceNumber: formData.invoiceNumber,
+            clientCompany: formData.clientCompany,
+            amount: formData.unitCost,
+            date: formData.invoiceDate,
+            status: 'Generated',
+            fullData: formData
+        };
+        
+        invoiceHistory.unshift(historyItem);
+        if (invoiceHistory.length > 50) {
+            invoiceHistory = invoiceHistory.slice(0, 50);
+        }
+        
+        loadInvoiceHistory();
+        return;
     }
     
-    saveUserData();
-    loadInvoiceHistory();
+    try {
+        console.log('Saving invoice to Firebase...');
+        
+        // Prepare invoice data for Firebase
+        const invoiceData = {
+            invoiceNumber: formData.invoiceNumber,
+            clientCompany: formData.clientCompany,
+            clientAddress: formData.clientAddress,
+            clientVAT: formData.clientVAT,
+            clientEmail: formData.clientEmail,
+            clientPhone: formData.clientPhone,
+            yourRef: formData.yourRef,
+            cxRef: formData.cxRef,
+            customerRef: formData.customerRef,
+            deliveryDate: formData.deliveryDate,
+            vehicleType: formData.vehicleType,
+            pickupAddress: formData.pickupAddress,
+            deliveryAddress: formData.deliveryAddress,
+            deliveryTime: formData.deliveryTime,
+            receivedBy: formData.receivedBy,
+            leftAt: formData.leftAt,
+            deliveryNotes: formData.deliveryNotes,
+            unitCost: formData.unitCost,
+            paymentDays: formData.paymentDays,
+            amount: formData.unitCost,
+            status: 'Generated'
+        };
+        
+        const result = await window.saveInvoice(currentUser.id, invoiceData);
+        
+        if (result.success) {
+            console.log('Invoice saved with ID:', result.id);
+            
+            // Add to local history for immediate UI update
+            const historyItem = {
+                id: result.id,
+                invoiceNumber: formData.invoiceNumber,
+                clientCompany: formData.clientCompany,
+                amount: formData.unitCost,
+                date: formData.invoiceDate,
+                status: 'Generated',
+                fullData: formData
+            };
+            
+            invoiceHistory.unshift(historyItem);
+            loadInvoiceHistory();
+            
+            showNotification('✅ Invoice saved successfully!', 'success');
+        } else {
+            console.error('Failed to save invoice:', result.error);
+            showNotification('⚠️ Failed to save invoice: ' + result.error, 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error saving invoice:', error);
+        showNotification('❌ Error saving invoice: ' + error.message, 'error');
+    }
 }
 
 // Load invoice history
 function loadInvoiceHistory() {
+    console.log('Loading invoice history...');
+    console.log('Invoice history array:', invoiceHistory);
+    console.log('Invoice history length:', invoiceHistory.length);
+    
     const historyContainer = document.getElementById('invoiceHistory');
-    if (!historyContainer) return;
+    if (!historyContainer) {
+        console.error('History container element not found!');
+        return;
+    }
     
     if (invoiceHistory.length === 0) {
+        console.log('No invoices found, showing empty state');
         historyContainer.innerHTML = '<p>No invoices generated yet.</p>';
         return;
     }
+    
+    console.log('Displaying', invoiceHistory.length, 'invoices');
     
     historyContainer.innerHTML = invoiceHistory.map(item => `
         <div class="history-item">
@@ -918,12 +1196,37 @@ function showTabByName(tabName) {
     });
 }
 
-// Delete invoice from history
-function deleteInvoice(id) {
-    if (confirm('Are you sure you want to delete this invoice?')) {
+// Delete invoice from Firebase
+async function deleteInvoice(id) {
+    if (!confirm('Are you sure you want to delete this invoice?')) {
+        return;
+    }
+    
+    if (!currentUser || !window.deleteInvoice) {
+        // Fallback for demo mode
         invoiceHistory = invoiceHistory.filter(item => item.id != id);
-        saveUserData();
         loadInvoiceHistory();
+        showNotification('🗑️ Invoice deleted', 'success');
+        return;
+    }
+    
+    try {
+        showNotification('🔄 Deleting invoice...', 'info');
+        
+        const result = await window.deleteInvoice(id);
+        
+        if (result.success) {
+            // Remove from local history
+            invoiceHistory = invoiceHistory.filter(item => item.id != id);
+            loadInvoiceHistory();
+            showNotification('🗑️ Invoice deleted successfully!', 'success');
+        } else {
+            showNotification('❌ Failed to delete invoice: ' + result.error, 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error deleting invoice:', error);
+        showNotification('❌ Error deleting invoice: ' + error.message, 'error');
     }
 }
 

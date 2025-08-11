@@ -5,14 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Digital Invoice Generator</title>
     <link rel="stylesheet" href="styles.css">
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <div id="g_id_onload"
-         data-client_id="558805332524-spou8m9s6i9fl5kusp430fmg3kttclo9.apps.googleusercontent.com"
-         data-context="signin"
-         data-ux_mode="popup"
-         data-callback="onSignIn"
-         data-auto_prompt="false">
-    </div>
+    <!-- Firebase Configuration -->
+    <script type="module" src="firebase-config.js"></script>
+    
+    <!-- Legacy Google Sign-In removed to prevent conflicts with Firebase Auth -->
+    <!-- All Google authentication now handled through Firebase Google Auth Provider -->
 </head>
 <body>
     <div id="app">
@@ -148,6 +145,12 @@
                     <button onclick="debugGoogleAuth()" class="auth-btn demo" style="background: #6c757d; margin-top: 8px;">
                         🔍 Debug Google Auth
                     </button>
+                    <button onclick="debugUserEmail()" class="auth-btn demo" style="background: #17a2b8; margin-top: 8px;">
+                        🔍 Check Email Status
+                    </button>
+                    <button onclick="debugFirebaseFunctions()" class="auth-btn demo" style="background: #28a745; margin-top: 8px;">
+                        🔧 Test Firebase Functions
+                    </button>
                     <small>Test all features without creating an account</small>
                 </div>
             </div>
@@ -159,6 +162,7 @@
                 <h1>Invoice Generator</h1>
                 <div class="user-info">
                     <span id="userEmail"></span>
+                    <button onclick="loadUserDataFromFirebase()" style="background: #28a745; margin-right: 10px;">Reload Data</button>
                     <button onclick="signOut()">Sign Out</button>
                 </div>
             </header>
@@ -220,6 +224,7 @@
                         <button type="button" onclick="previewInvoice()">Preview</button>
                         <button type="button" onclick="generatePDF()">Generate PDF</button>
                         <button type="button" onclick="sendEmail()">Send Email</button>
+                        <button type="button" onclick="clearInvoiceForm()" style="background: #6c757d;">Clear Form</button>
                     </div>
                 </form>
             </div>
